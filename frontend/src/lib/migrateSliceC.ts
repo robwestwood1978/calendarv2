@@ -1,9 +1,7 @@
 // src/lib/migrateSliceC.ts
-// Idempotent migration for Slice C (safe to run on every load).
-// - Ensures settings include myAgendaOnly?: boolean (default false)
-// - Ensures events retain stable id and optional sync-ready fields
-//   createdByUserId? and ownerMemberId? (left undefined if unknown)
-// - Leaves all Slice A/B data intact.
+// Idempotent migration for Slice C (safe on every load).
+// Guarantees fc_settings_v3 exists and *always* has a members: [] array.
+// Also ensures optional sync-ready fields on events are present (left undefined).
 
 type AnyRecord = Record<string, any>;
 
@@ -24,24 +22,54 @@ export function migrateSliceC(): void {
 }
 
 function migrateSettings() {
-  const raw = localStorage.getItem(LS_SETTINGS);
-  if (!raw) return; // nothing to do, Slice A/B will initialise as usual
-  let parsed: AnyRecord;
+  // 1) Read whatever is there (or nothing)
+  let raw: string | null = null;
   try {
-    parsed = JSON.parse(raw);
+    raw = localStorage.getItem(LS_SETTINGS);
   } catch {
-    return;
+    // continue with defaults
   }
-  // Non-breaking: only add the key if missing.
-  if (typeof parsed.myAgendaOnly === 'undefined') {
-    parsed.myAgendaOnly = false;
-    localStorage.setItem(LS_SETTINGS, JSON.stringify(parsed));
+
+  let parsed: AnyRecord = {};
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw) || {};
+    } catch {
+      parsed = {};
+    }
+  }
+
+  // 2) Backfill *strong* defaults expected by legacy readers
+  const hasMembersArray = Array.isArray(parsed.members);
+  const next: AnyRecord = {
+    ...parsed,
+    // Always provide an array — legacy code does .members.map(...)
+    members: hasMembersArray ? parsed.members : [],
+  };
+
+  // 3) Add Slice C flag key if missing (non-breaking)
+  if (typeof next.myAgendaOnly === 'undefined') {
+    next.myAgendaOnly = false;
+  }
+
+  // 4) Write back only if something actually changed
+  const changed =
+    !raw ||
+    !hasMembersArray ||
+    (typeof parsed.myAgendaOnly === 'undefined');
+
+  if (changed) {
+    try {
+      localStorage.setItem(LS_SETTINGS, JSON.stringify(next));
+    } catch {
+      // ignore; nothing else we can do in local-only mode
+    }
   }
 }
 
 function migrateEvents() {
   const raw = localStorage.getItem(LS_EVENTS);
-  if (!raw) return; // no events yet
+  if (!raw) return;
   let events: AnyRecord[];
   try {
     const parsed = JSON.parse(raw);
@@ -55,19 +83,15 @@ function migrateEvents() {
   const next = events.map((evt) => {
     const copy = { ...evt };
 
-    // Ensure a stable id (Slice A/B already creates one—this is defensive)
     if (!copy.id) {
       copy.id = uid();
       changed = true;
     }
-
-    // Prepare sync-friendly optional ownership fields (do not infer)
     if (!('createdByUserId' in copy)) {
       copy.createdByUserId = undefined;
       changed = true;
     }
     if (!('ownerMemberId' in copy)) {
-      // Owner can be set later (e.g., responsible adult/member)
       copy.ownerMemberId = undefined;
       changed = true;
     }
@@ -75,11 +99,14 @@ function migrateEvents() {
   });
 
   if (changed) {
-    localStorage.setItem(LS_EVENTS, JSON.stringify(next));
+    try {
+      localStorage.setItem(LS_EVENTS, JSON.stringify(next));
+    } catch {
+      // ignore write errors
+    }
   }
 }
 
-// Lightweight uid (defensive — events already have ids in Slice B)
 function uid(): string {
   const a = new Uint8Array(16);
   crypto.getRandomValues(a);
