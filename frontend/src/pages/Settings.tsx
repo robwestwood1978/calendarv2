@@ -1,19 +1,15 @@
-// src/pages/Settings.tsx
-// Baseline Settings page (keeps your AdminPanel exactly as before)
-// + Additive Slice C panels that show ONLY when the feature flag is ON.
-//
-// Result with flag OFF: Identical to Slice A/B.
-// Result with flag ON: AdminPanel remains; we append small "Experiments" toggle
-// and an Account panel beneath it.
+// frontend/src/pages/Settings.tsx
+// Baseline Settings page (keeps your AdminPanel) + additive Slice C toggle & Account panel.
+// Uses the corrected hook contract: `useSettings()` returns the settings object itself.
 
-import React from 'react';
-import AdminPanel from '../components/AdminPanel';
-import { useFeatureFlags, setAuthEnabled } from '../state/featureFlags';
-import { useAuth } from '../auth/AuthProvider';
-import { useSettings } from '../state/settings';
+import React from 'react'
+import AdminPanel from '../components/AdminPanel'
+import { useFeatureFlags, setAuthEnabled } from '../state/featureFlags'
+import { useAuth } from '../auth/AuthProvider'
+import { useSettings } from '../state/settings'
 
 export default function Settings() {
-  const [flags, setFlags] = useFeatureFlags();
+  const [flags, setFlags] = useFeatureFlags()
 
   return (
     <div>
@@ -29,8 +25,8 @@ export default function Settings() {
             type="checkbox"
             checked={!!flags.authEnabled}
             onChange={(e) => {
-              setAuthEnabled(e.target.checked);
-              setFlags({ ...flags, authEnabled: e.target.checked });
+              setAuthEnabled(e.target.checked)
+              setFlags({ ...flags, authEnabled: e.target.checked })
             }}
           />
           <span>Enable accounts &amp; “My agenda”</span>
@@ -45,12 +41,12 @@ export default function Settings() {
       {/* Account panel appears only when the flag is ON */}
       {flags.authEnabled ? <AccountPanel /> : null}
     </div>
-  );
+  )
 }
 
 function AccountPanel() {
-  const { settings } = useSettings();
-  const { currentUser, users, linkMember, unlinkMember, selfDemote, reload, isParent, isAdult, isChild } = useAuth();
+  const settings = useSettings() // ✅ settings object (has members array)
+  const { currentUser, users, linkMember, unlinkMember, selfDemote, reload, isParent, isAdult, isChild } = useAuth()
 
   return (
     <section style={{ marginTop: 16 }}>
@@ -68,7 +64,7 @@ function AccountPanel() {
           </p>
           <div style={{ display: 'grid', gap: 8, marginTop: 6 }}>
             {(settings.members || []).map((m) => {
-              const linked = currentUser.linkedMemberIds.includes(m.id);
+              const linked = currentUser.linkedMemberIds.includes(m.id)
               return (
                 <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 10px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -92,7 +88,7 @@ function AccountPanel() {
                     )}
                   </div>
                 </div>
-              );
+              )
             })}
           </div>
 
@@ -137,7 +133,7 @@ function AccountPanel() {
         ))}
       </div>
     </section>
-  );
+  )
 }
 
 function Row({ label, value }: { label: string; value: string }) {
@@ -146,14 +142,14 @@ function Row({ label, value }: { label: string; value: string }) {
       <div style={{ fontSize: 13, color: '#64748b' }}>{label}</div>
       <div style={{ fontWeight: 600 }}>{value}</div>
     </div>
-  );
+  )
 }
 
 const btnPrimary: React.CSSProperties = {
   background: '#0ea5e9', color: '#ffffff', fontWeight: 700,
   border: 'none', borderRadius: 8, padding: '8px 10px', cursor: 'pointer',
-};
+}
 const btnSecondary: React.CSSProperties = {
   background: '#f1f5f9', color: '#0f172a', fontWeight: 700,
   border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', cursor: 'pointer',
-};
+}
