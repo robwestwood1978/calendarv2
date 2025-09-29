@@ -1,155 +1,172 @@
-// frontend/src/pages/Settings.tsx
-// Baseline Settings page (keeps your AdminPanel) + additive Slice C toggle & Account panel.
-// Uses the corrected hook contract: `useSettings()` returns the settings object itself.
+// frontend/src/state/settings.tsx
+// Back-compat shim for Slice A/B consumers.
+// - `useSettings()` returns the settings object itself
+// - BUT also exposes `.settings` alias, and attaches `setSettings` / `setMyAgendaOnly`
+//   so legacy code that expects `{ settings } = useSettings()` (or expects methods on it) keeps working.
 
-import React from 'react'
-import AdminPanel from '../components/AdminPanel'
-import { useFeatureFlags, setAuthEnabled } from '../state/featureFlags'
-import { useAuth } from '../auth/AuthProvider'
-import { useSettings } from '../state/settings'
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { DateTime } from 'luxon'
 
-export default function Settings() {
-  const [flags, setFlags] = useFeatureFlags()
+type AnyRecord = Record<string, any>
 
-  return (
-    <div>
-      <h2 className="text-xl font-semibold">Settings</h2>
+const LS_SETTINGS = 'fc_settings_v3'
+const LS_EVENTS = 'fc_events_v1'
 
-      {/* Baseline content stays first */}
-      <AdminPanel />
-
-      {/* Additive, compact Slice C controls (flag-gated) */}
-      <div style={{ marginTop: 16 }}>
-        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
-          <input
-            type="checkbox"
-            checked={!!flags.authEnabled}
-            onChange={(e) => {
-              setAuthEnabled(e.target.checked)
-              setFlags({ ...flags, authEnabled: e.target.checked })
-            }}
-          />
-          <span>Enable accounts &amp; “My agenda”</span>
-        </label>
-        {!flags.authEnabled ? (
-          <p style={{ marginTop: 6, color: '#64748b', fontSize: 13 }}>
-            When disabled, the app behaves exactly like Slice A/B. Seed users: <code>parent@local.test</code>, <code>adult@local.test</code>, <code>child@local.test</code>
-          </p>
-        ) : null}
-      </div>
-
-      {/* Account panel appears only when the flag is ON */}
-      {flags.authEnabled ? <AccountPanel /> : null}
-    </div>
-  )
+// ---------- Formatting helpers (stable) ----------
+export const fmt = {
+  day(dt: DateTime) {
+    return dt.toFormat('ccc d LLL')
+  },
+  time(dt: DateTime) {
+    return dt.toFormat('HH:mm')
+  },
 }
 
-function AccountPanel() {
-  const settings = useSettings() // ✅ settings object (has members array)
-  const { currentUser, users, linkMember, unlinkMember, selfDemote, reload, isParent, isAdult, isChild } = useAuth()
-
-  return (
-    <section style={{ marginTop: 16 }}>
-      <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Account</h3>
-
-      {currentUser ? (
-        <>
-          <Row label="Signed in as" value={currentUser.email} />
-          <Row label="Role" value={isParent ? 'Parent' : isAdult ? 'Adult' : isChild ? 'Child' : 'Guest'} />
-
-          <div style={{ height: 8 }} />
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Linked members</div>
-          <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
-            “My agenda” will only show events for linked members.
-          </p>
-          <div style={{ display: 'grid', gap: 8, marginTop: 6 }}>
-            {(settings.members || []).map((m) => {
-              const linked = currentUser.linkedMemberIds.includes(m.id)
-              return (
-                <div key={m.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <span
-                      style={{
-                        width: 12, height: 12, borderRadius: 4,
-                        background: m.colour || '#e5e7eb', border: '1px solid #cbd5e1'
-                      }}
-                      aria-hidden
-                    />
-                    <div>
-                      <div style={{ fontWeight: 600 }}>{m.name}</div>
-                      {m.role ? <div style={{ fontSize: 12, color: '#64748b' }}>{m.role}</div> : null}
-                    </div>
-                  </div>
-                  <div>
-                    {linked ? (
-                      <button style={btnSecondary} onClick={() => unlinkMember(m.id)}>Unlink</button>
-                    ) : (
-                      <button style={btnPrimary} onClick={() => linkMember(m.id)}>Link</button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-
-          <div style={{ height: 12 }} />
-          <div style={{ fontWeight: 700, fontSize: 14 }}>Role options</div>
-          <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
-            You can demote your own role (e.g., Parent → Adult → Child).
-          </p>
-          <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
-            <button style={btnSecondary} onClick={() => { const r = selfDemote('adult'); if (!r.ok) alert(r.reason); else reload(); }}>
-              Demote to Adult
-            </button>
-            <button style={btnSecondary} onClick={() => { const r = selfDemote('child'); if (!r.ok) alert(r.reason); else reload(); }}>
-              Demote to Child
-            </button>
-          </div>
-        </>
-      ) : (
-        <>
-          <p style={{ color: '#64748b', fontSize: 13 }}>
-            Not signed in. Use the header menu to sign in with a seed account.
-          </p>
-          <div style={{ color: '#0f172a', fontSize: 13, marginTop: 6 }}>
-            <strong>Seed users:</strong> <code>parent@local.test</code>, <code>adult@local.test</code>, <code>child@local.test</code>
-          </div>
-        </>
-      )}
-
-      <div style={{ height: 12 }} />
-      <div style={{ fontWeight: 700, fontSize: 14 }}>All local users</div>
-      <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
-        Stored in your browser only. Clear via your browser storage settings.
-      </p>
-      <div style={{ display: 'grid', gap: 8, marginTop: 6 }}>
-        {users.map((u) => (
-          <div key={u.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 10px' }}>
-            <div style={{ fontWeight: 600 }}>{u.email}</div>
-            <div style={{ fontSize: 12, color: '#64748b' }}>
-              Role: {u.role.charAt(0).toUpperCase() + u.role.slice(1)} · Linked: {u.linkedMemberIds.length}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
+// ---------- Settings shape ----------
+export type Member = { id: string; name: string; role?: 'parent' | 'adult' | 'child'; colour?: string }
+export type Settings = {
+  weekStartMonday?: boolean
+  timeFormat24h?: boolean
+  defaultDurationMins?: number
+  members: Member[]                   // always an array
+  myAgendaOnly?: boolean              // optional Slice C toggle (unused if feature off)
 }
 
-function Row({ label, value }: { label: string; value: string }) {
-  return (
-    <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, alignItems: 'center' }}>
-      <div style={{ fontSize: 13, color: '#64748b' }}>{label}</div>
-      <div style={{ fontWeight: 600 }}>{value}</div>
-    </div>
-  )
+// Normalize any raw object to safe Settings
+function normalizeSettings(input: any): Settings {
+  const s = (input && typeof input === 'object') ? input : {}
+  return {
+    weekStartMonday: typeof s.weekStartMonday === 'boolean' ? s.weekStartMonday : false,
+    timeFormat24h: typeof s.timeFormat24h === 'boolean' ? s.timeFormat24h : true,
+    defaultDurationMins: typeof s.defaultDurationMins === 'number' ? s.defaultDurationMins : 60,
+    members: Array.isArray(s.members) ? s.members : [],
+    myAgendaOnly: typeof s.myAgendaOnly === 'boolean' ? s.myAgendaOnly : false,
+  }
 }
 
-const btnPrimary: React.CSSProperties = {
-  background: '#0ea5e9', color: '#ffffff', fontWeight: 700,
-  border: 'none', borderRadius: 8, padding: '8px 10px', cursor: 'pointer',
+function readSettingsRaw(): AnyRecord {
+  try {
+    const raw = localStorage.getItem(LS_SETTINGS)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
 }
-const btnSecondary: React.CSSProperties = {
-  background: '#f1f5f9', color: '#0f172a', fontWeight: 700,
-  border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', cursor: 'pointer',
+function readSettings(): Settings {
+  return normalizeSettings(readSettingsRaw())
+}
+function writeSettings(next: AnyRecord) {
+  const merged = { ...readSettingsRaw(), ...next }
+  const normalized = normalizeSettings(merged)
+  const out = { ...merged, ...normalized, members: normalized.members, myAgendaOnly: normalized.myAgendaOnly }
+  localStorage.setItem(LS_SETTINGS, JSON.stringify(out))
+  window.dispatchEvent(new CustomEvent('fc:settings:changed'))
+}
+
+// ---------- Event colour helper (stable) ----------
+export function pickEventColour(evt: any, settings: Settings): string | undefined {
+  const memberColourMap = new Map<string, string>()
+  ;(settings.members || []).forEach((m) => {
+    if (m.id && m.colour) memberColourMap.set(m.id, m.colour)
+  })
+
+  const attendees: string[] = evt?.attendeeIds || evt?.attendees || evt?.members || []
+  for (const mId of Array.isArray(attendees) ? attendees : []) {
+    const c = memberColourMap.get(mId)
+    if (c) return c
+  }
+
+  const responsible: string | undefined = evt?.responsibleId || evt?.responsibleMemberId
+  if (responsible && memberColourMap.has(responsible)) return memberColourMap.get(responsible)
+
+  const owner: string | undefined = evt?.ownerMemberId
+  if (owner && memberColourMap.has(owner)) return memberColourMap.get(owner)
+
+  return evt?.colour || evt?.color
+}
+
+// ---------- Context ----------
+type Ctx = {
+  value: Settings
+  setSettings: (update: Partial<Settings> | ((s: Settings) => Settings)) => void
+  setMyAgendaOnly: (on: boolean) => void
+}
+const SettingsContext = createContext<Ctx | undefined>(undefined)
+
+export function SettingsProvider({ children }: { children: React.ReactNode }) {
+  const [value, setValue] = useState<Settings>(() => readSettings())
+
+  useEffect(() => {
+    const onCustom = () => setValue(readSettings())
+    const onStorage = (e: StorageEvent) => { if (e.key === LS_SETTINGS) onCustom() }
+    window.addEventListener('fc:settings:changed', onCustom)
+    window.addEventListener('storage', onStorage)
+    return () => {
+      window.removeEventListener('fc:settings:changed', onCustom)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
+
+  const setSettings: Ctx['setSettings'] = (update) => {
+    const current = readSettings()
+    const next = typeof update === 'function'
+      ? (update as (s: Settings) => Settings)(current)
+      : { ...current, ...update }
+    if (!Array.isArray(next.members)) next.members = []
+    writeSettings(next as any)
+    setValue(readSettings())
+  }
+  const setMyAgendaOnly = (on: boolean) => setSettings({ myAgendaOnly: !!on })
+
+  const ctx = useMemo<Ctx>(() => ({ value, setSettings, setMyAgendaOnly }), [value])
+  return <SettingsContext.Provider value={ctx}>{children}</SettingsContext.Provider>
+}
+
+// ---------- Public hooks (back-compat) ----------
+
+/**
+ * Baseline-compatible hook.
+ * Returns the settings object itself, but also attaches:
+ *  - .settings   -> alias to itself (legacy code: const { settings } = useSettings())
+ *  - .setSettings / .setMyAgendaOnly -> mutation helpers (legacy code calling methods off hook result)
+ */
+export function useSettings(): Settings & {
+  settings: Settings
+  setSettings?: Ctx['setSettings']
+  setMyAgendaOnly?: Ctx['setMyAgendaOnly']
+} {
+  const ctx = useContext(SettingsContext)
+  if (!ctx) throw new Error('useSettings must be used within <SettingsProvider>')
+  const s = ctx.value as Settings & {
+    settings?: Settings
+    setSettings?: Ctx['setSettings']
+    setMyAgendaOnly?: Ctx['setMyAgendaOnly']
+  }
+  // attach legacy-friendly aliases exactly once (idempotent)
+  if (!s.settings) s.settings = s
+  if (!s.setSettings) s.setSettings = ctx.setSettings
+  if (!s.setMyAgendaOnly) s.setMyAgendaOnly = ctx.setMyAgendaOnly
+  return s
+}
+
+// New explicit actions hook (optional for new code)
+export function useSettingsActions(): Pick<Ctx, 'setSettings' | 'setMyAgendaOnly'> {
+  const ctx = useContext(SettingsContext)
+  if (!ctx) throw new Error('useSettingsActions must be used within <SettingsProvider>')
+  return { setSettings: ctx.setSettings, setMyAgendaOnly: ctx.setMyAgendaOnly }
+}
+
+// ---------- Convenience readers ----------
+export function listMembers(): Member[] {
+  return readSettings().members // guaranteed array
+}
+export function readEventsRaw(): any[] {
+  try {
+    const raw = localStorage.getItem(LS_EVENTS)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
 }
