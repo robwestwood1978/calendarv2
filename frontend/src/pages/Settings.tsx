@@ -1,64 +1,50 @@
 // src/pages/Settings.tsx
-// Adds: Slice C feature flag toggle, Account panel (who I am, link/unlink members),
-// self-demotion, and a seed-users hint. All additions are non-breaking & flag-gated.
+// Baseline Settings page (keeps your AdminPanel exactly as before)
+// + Additive Slice C panels that show ONLY when the feature flag is ON.
+//
+// Result with flag OFF: Identical to Slice A/B.
+// Result with flag ON: AdminPanel remains; we append small "Experiments" toggle
+// and an Account panel beneath it.
 
-import React, { useMemo } from 'react';
-import { useSettings } from '../state/settings';
+import React from 'react';
+import AdminPanel from '../components/AdminPanel';
 import { useFeatureFlags, setAuthEnabled } from '../state/featureFlags';
 import { useAuth } from '../auth/AuthProvider';
+import { useSettings } from '../state/settings';
 
-export default function SettingsPage() {
-  const [flags] = useFeatureFlags();
+export default function Settings() {
+  const [flags, setFlags] = useFeatureFlags();
 
   return (
-    <div style={{ display: 'grid', gap: 24 }}>
+    <div>
       <h2 className="text-xl font-semibold">Settings</h2>
 
-      <section style={panel}>
-        <h3 style={h3}>Experiments</h3>
-        <div style={{ fontSize: 14, color: '#334155' }}>
-          <label style={{ display: 'inline-flex', gap: 8, alignItems: 'center' }}>
-            <FlagToggle />
-            Enable accounts &amp; “My agenda”
-          </label>
-          <p style={{ marginTop: 8, color: '#64748b' }}>
-            When disabled, the app behaves exactly like Slice A/B.
+      {/* Baseline content stays first */}
+      <AdminPanel />
+
+      {/* Additive, compact Slice C controls (flag-gated) */}
+      <div style={{ marginTop: 16 }}>
+        <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+          <input
+            type="checkbox"
+            checked={!!flags.authEnabled}
+            onChange={(e) => {
+              setAuthEnabled(e.target.checked);
+              setFlags({ ...flags, authEnabled: e.target.checked });
+            }}
+          />
+          <span>Enable accounts &amp; “My agenda”</span>
+        </label>
+        {!flags.authEnabled ? (
+          <p style={{ marginTop: 6, color: '#64748b', fontSize: 13 }}>
+            When disabled, the app behaves exactly like Slice A/B. Seed users: <code>parent@local.test</code>, <code>adult@local.test</code>, <code>child@local.test</code>
           </p>
-        </div>
-      </section>
+        ) : null}
+      </div>
 
-      {flags.authEnabled ? <AccountPanel /> : <SeedHint />}
+      {/* Account panel appears only when the flag is ON */}
+      {flags.authEnabled ? <AccountPanel /> : null}
     </div>
-  );
-}
-
-function FlagToggle() {
-  const [flags, setFlags] = useFeatureFlags();
-  return (
-    <input
-      type="checkbox"
-      checked={!!flags.authEnabled}
-      onChange={(e) => {
-        setAuthEnabled(e.target.checked);
-        setFlags({ ...flags, authEnabled: e.target.checked });
-      }}
-    />
-  );
-}
-
-function SeedHint() {
-  return (
-    <section style={panel}>
-      <h3 style={h3}>Accounts (Slice C)</h3>
-      <p style={{ color: '#64748b', fontSize: 14 }}>
-        Turn on the feature to use local-only sign in and “My agenda”. Seed users are available:
-      </p>
-      <ul style={ul}>
-        <li><code>parent@local.test</code> / <code>parent123</code></li>
-        <li><code>adult@local.test</code> / <code>adult123</code></li>
-        <li><code>child@local.test</code> / <code>child123</code></li>
-      </ul>
-    </section>
   );
 }
 
@@ -67,20 +53,20 @@ function AccountPanel() {
   const { currentUser, users, linkMember, unlinkMember, selfDemote, reload, isParent, isAdult, isChild } = useAuth();
 
   return (
-    <section style={panel}>
-      <h3 style={h3}>Account</h3>
+    <section style={{ marginTop: 16 }}>
+      <h3 style={{ fontSize: 16, fontWeight: 700, marginBottom: 8 }}>Account</h3>
 
       {currentUser ? (
         <>
           <Row label="Signed in as" value={currentUser.email} />
-          <Row label="Role" value={roleLabel({ isParent, isAdult, isChild })} />
+          <Row label="Role" value={isParent ? 'Parent' : isAdult ? 'Adult' : isChild ? 'Child' : 'Guest'} />
 
           <div style={{ height: 8 }} />
-          <h4 style={h4}>Linked members</h4>
-          <p style={{ color: '#64748b', fontSize: 14, marginTop: 4 }}>
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Linked members</div>
+          <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
             “My agenda” will only show events for linked members.
           </p>
-          <div style={{ display: 'grid', gap: 8, marginTop: 10 }}>
+          <div style={{ display: 'grid', gap: 8, marginTop: 6 }}>
             {(settings.members || []).map((m) => {
               const linked = currentUser.linkedMemberIds.includes(m.id);
               return (
@@ -88,12 +74,8 @@ function AccountPanel() {
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     <span
                       style={{
-                        width: 12,
-                        height: 12,
-                        borderRadius: 4,
-                        background: m.colour || '#e5e7eb',
-                        display: 'inline-block',
-                        border: '1px solid #cbd5e1',
+                        width: 12, height: 12, borderRadius: 4,
+                        background: m.colour || '#e5e7eb', border: '1px solid #cbd5e1'
                       }}
                       aria-hidden
                     />
@@ -114,10 +96,10 @@ function AccountPanel() {
             })}
           </div>
 
-          <div style={{ height: 16 }} />
-          <h4 style={h4}>Role options</h4>
-          <p style={{ color: '#64748b', fontSize: 14, marginTop: 4 }}>
-            You can demote your own role (e.g., Parent → Adult → Child). Promotions are not allowed locally.
+          <div style={{ height: 12 }} />
+          <div style={{ fontWeight: 700, fontSize: 14 }}>Role options</div>
+          <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
+            You can demote your own role (e.g., Parent → Adult → Child).
           </p>
           <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
             <button style={btnSecondary} onClick={() => { const r = selfDemote('adult'); if (!r.ok) alert(r.reason); else reload(); }}>
@@ -130,22 +112,21 @@ function AccountPanel() {
         </>
       ) : (
         <>
-          <p style={{ color: '#64748b', fontSize: 14 }}>
+          <p style={{ color: '#64748b', fontSize: 13 }}>
             Not signed in. Use the header menu to sign in with a seed account.
           </p>
-          <div style={{ color: '#0f172a', fontSize: 14, marginTop: 8 }}>
-            <strong>Seed users:</strong>{' '}
-            <code>parent@local.test</code>, <code>adult@local.test</code>, <code>child@local.test</code>
+          <div style={{ color: '#0f172a', fontSize: 13, marginTop: 6 }}>
+            <strong>Seed users:</strong> <code>parent@local.test</code>, <code>adult@local.test</code>, <code>child@local.test</code>
           </div>
         </>
       )}
 
-      <div style={{ height: 16 }} />
-      <h4 style={h4}>All local users</h4>
-      <p style={{ color: '#64748b', fontSize: 14, marginTop: 4 }}>
-        These are stored in your browser only and can be cleared via your browser storage settings.
+      <div style={{ height: 12 }} />
+      <div style={{ fontWeight: 700, fontSize: 14 }}>All local users</div>
+      <p style={{ color: '#64748b', fontSize: 13, marginTop: 4 }}>
+        Stored in your browser only. Clear via your browser storage settings.
       </p>
-      <div style={{ display: 'grid', gap: 8, marginTop: 8 }}>
+      <div style={{ display: 'grid', gap: 8, marginTop: 6 }}>
         {users.map((u) => (
           <div key={u.id} style={{ border: '1px solid #e5e7eb', borderRadius: 8, padding: '8px 10px' }}>
             <div style={{ fontWeight: 600 }}>{u.email}</div>
@@ -159,10 +140,6 @@ function AccountPanel() {
   );
 }
 
-function roleLabel({ isParent, isAdult, isChild }: { isParent: boolean; isAdult: boolean; isChild: boolean }) {
-  return isParent ? 'Parent' : isAdult ? 'Adult' : isChild ? 'Child' : 'Guest';
-}
-
 function Row({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 12, alignItems: 'center' }}>
@@ -172,49 +149,11 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
-const panel: React.CSSProperties = {
-  border: '1px solid #e5e7eb',
-  borderRadius: 12,
-  padding: 16,
-  background: '#ffffff',
-};
-
-const h3: React.CSSProperties = {
-  fontSize: 16,
-  fontWeight: 700,
-  margin: 0,
-  marginBottom: 10,
-};
-
-const h4: React.CSSProperties = {
-  fontSize: 14,
-  fontWeight: 700,
-  margin: 0,
-};
-
-const ul: React.CSSProperties = {
-  marginTop: 8,
-  paddingLeft: 18,
-  color: '#0f172a',
-  fontSize: 14,
-};
-
 const btnPrimary: React.CSSProperties = {
-  background: '#0ea5e9',
-  color: '#ffffff',
-  fontWeight: 700,
-  border: 'none',
-  borderRadius: 8,
-  padding: '8px 10px',
-  cursor: 'pointer',
+  background: '#0ea5e9', color: '#ffffff', fontWeight: 700,
+  border: 'none', borderRadius: 8, padding: '8px 10px', cursor: 'pointer',
 };
-
 const btnSecondary: React.CSSProperties = {
-  background: '#f1f5f9',
-  color: '#0f172a',
-  fontWeight: 700,
-  border: '1px solid #e2e8f0',
-  borderRadius: 8,
-  padding: '8px 10px',
-  cursor: 'pointer',
+  background: '#f1f5f9', color: '#0f172a', fontWeight: 700,
+  border: '1px solid #e2e8f0', borderRadius: 8, padding: '8px 10px', cursor: 'pointer',
 };
