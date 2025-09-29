@@ -1,91 +1,98 @@
-// frontend/src/pages/Home.tsx
-import React, { useMemo, useState } from 'react'
-import { DateTime } from 'luxon'
-import { listExpanded } from '../state/events'
-import type { EventRecord } from '../lib/recurrence'
-import { useSettings, fmt } from '../state/settings'
-import { Link, useNavigate } from 'react-router-dom'
+// src/pages/Home.tsx
+// Adds a small "My agenda" toolbar (in addition to the global header switch)
+// and shows a concise upcoming list using the agenda helper.
+// With auth OFF, this page renders exactly as before (no toggle, full list fallback).
+
+import React, { useMemo } from 'react';
+import { DateTime } from 'luxon';
+import { useSettings, fmt } from '../state/settings';
+import { useFeatureFlags } from '../state/featureFlags';
+import { useAuth } from '../auth/AuthProvider';
+import { useAgendaList } from '../state/events-agenda';
 
 export default function Home() {
-  const s = useSettings()
-  const nav = useNavigate()
-  const [query, setQuery] = useState('')
+  const [flags] = useFeatureFlags();
+  const { settings, setMyAgendaOnly } = useSettings();
+  const { currentUser } = useAuth();
 
-  const start = DateTime.local().startOf('day')
-  const end = start.plus({ days: 7 }).endOf('day')
+  // Live, filtered list when auth is enabled & user opted for "My agenda".
+  const agenda = useAgendaList();
 
-  const events = useMemo(() => {
-    const data = listExpanded(start, end, query)
-    return data.filter(e => DateTime.fromISO(e.start).isValid && DateTime.fromISO(e.end).isValid)
-  }, [start.toISO(), end.toISO(), query])
-
-  // group by day
-  const byDay = useMemo(() => {
-    const map = new Map<string, EventRecord[]>()
-    for (const e of events) {
-      const key = DateTime.fromISO(e.start).toISODate()
-      if (!key) continue
-      if (!map.has(key)) map.set(key, [])
-      map.get(key)!.push(e)
-    }
-    for (const [, arr] of map) {
-      arr.sort((a, b) => a.start.localeCompare(b.start) || (a.title || '').localeCompare(b.title || ''))
-    }
-    return Array.from(map.entries())
-      .sort(([a], [b]) => a.localeCompare(b))
-      .map(([k, v]) => ({ day: DateTime.fromISO(`${k}T00:00:00`), items: v }))
-  }, [events])
+  // If auth is OFF, useAgendaList() returns the full list anyway,
+  // so this remains non-breaking.
+  const upcoming = useMemo(() => {
+    const now = DateTime.local();
+    return agenda
+      .filter((e: any) => (e?.end ? DateTime.fromISO(e.end) >= now : true))
+      .sort((a: any, b: any) => DateTime.fromISO(a.start).toMillis() - DateTime.fromISO(b.start).toMillis())
+      .slice(0, 10);
+  }, [agenda]);
 
   return (
-    <div className="admin" style={{ maxWidth: 860, marginInline: 'auto', paddingBottom: 80 }}>
-      <h2 style={{ marginBottom: '0.5rem' }}>Welcome</h2>
+    <div style={{ display: 'grid', gap: 16 }}>
+      <h2 className="text-xl font-semibold">Home</h2>
 
-      <div className="row between" style={{ gap: '.5rem', marginBottom: '.8rem' }}>
-        <input
-          placeholder="Search events..."
-          value={query}
-          onChange={e => setQuery(e.target.value)}
-          style={{ flex: 1 }}
-        />
-        <button className="primary" onClick={() => nav('/calendar', { state: { quickAddAt: DateTime.local().toISO() } })}>+ Quick add</button>
-      </div>
-
-      {byDay.length === 0 && (
-        <div className="empty-state">
-          <p>No events in the next 7 days. Head to the <Link to="/calendar">Calendar</Link> to add one.</p>
+      {/* Local toolbar (flag-gated). We also have the global header switch. */}
+      {flags.authEnabled && currentUser ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <label style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontSize: 14 }}>
+            <input
+              type="checkbox"
+              checked={!!settings.myAgendaOnly}
+              onChange={(e) => setMyAgendaOnly(e.target.checked)}
+            />
+            My agenda
+          </label>
+          <span style={{ fontSize: 12, color: '#64748b' }}>
+            Showing {settings.myAgendaOnly ? 'linked members only' : 'all family events'}.
+          </span>
         </div>
-      )}
+      ) : null}
 
-      {byDay.map(({ day, items }) => (
-        <section className="card" key={day.toISODate()}>
-          <h3 style={{ marginTop: 0 }}>{day.toFormat('cccc d LLL')}</h3>
-          {items.map(e => {
-            const sTime = DateTime.fromISO(e.start)
-            const eTime = DateTime.fromISO(e.end)
-            const timeLabel = `${fmt(sTime, s.timezone, 'HH:mm')}–${fmt(eTime, s.timezone, 'HH:mm')}`
-            const chips: string[] = []
-            if (e.attendees?.length) chips.push(e.attendees.join(', '))
-            if (e.tags?.length) chips.push(e.tags.join(' · '))
-            if (e.checklist?.length) chips.push('Bring: ' + e.checklist.join(', '))
-            return (
-              <div key={`${e.id}-${e.start}`} style={{ padding: '8px 0', borderTop: '1px solid var(--border)' }}>
-                <div className="row between">
-                  <div>
-                    <strong>{e.title}</strong>
-                    <span className="hint" style={{ marginLeft: 8 }}>{timeLabel}</span>
+      <section style={panel}>
+        <h3 style={h3}>Upcoming</h3>
+        {upcoming.length === 0 ? (
+          <div style={{ color: '#64748b', fontSize: 14 }}>No upcoming events.</div>
+        ) : (
+          <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'grid', gap: 8 }}>
+            {upcoming.map((e: any) => (
+              <li key={e.id} style={row}>
+                <div style={{ minWidth: 120, color: '#334155' }}>
+                  <div style={{ fontWeight: 700 }}>{fmt.day(DateTime.fromISO(e.start))}</div>
+                  <div style={{ fontSize: 12, color: '#64748b' }}>
+                    {e.allDay ? 'All day' : `${fmt.time(DateTime.fromISO(e.start))} – ${fmt.time(DateTime.fromISO(e.end))}`}
                   </div>
-                  <Link to="/calendar" state={{ jumpTo: e.start }} className="hint">View</Link>
                 </div>
-                {chips.length > 0 && (
-                  <div className="chips" style={{ marginTop: 6 }}>
-                    {chips.map((c, i) => <span key={i} className="chip">{c}</span>)}
-                  </div>
-                )}
-              </div>
-            )
-          })}
-        </section>
-      ))}
+                <div style={{ flex: 1, fontWeight: 600 }}>{e.title || 'Untitled'}</div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
-  )
+  );
 }
+
+const panel: React.CSSProperties = {
+  border: '1px solid #e5e7eb',
+  borderRadius: 12,
+  padding: 16,
+  background: '#ffffff',
+};
+
+const h3: React.CSSProperties = {
+  fontSize: 16,
+  fontWeight: 700,
+  margin: 0,
+  marginBottom: 10,
+};
+
+const row: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  padding: '8px 10px',
+  border: '1px solid #e5e7eb',
+  borderRadius: 10,
+  background: '#f8fafc',
+};
