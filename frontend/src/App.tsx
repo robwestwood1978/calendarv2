@@ -1,11 +1,10 @@
 // src/App.tsx
-// Wraps the app with Settings + Auth providers, runs Slice C migration,
-// renders a minimal header with AccountMenu and a global "My agenda" switch.
-// NOTE: Feature-flagged. With auth OFF, header controls are hidden.
-// Routes remain: "/", "/calendar", "/settings" (no additions).
+// Router-light App: assumes the Router is created in main.tsx (baseline behaviour).
+// Keeps Slice C providers, migration, header AccountMenu, and bottom nav.
+// No route changes and no Calendar/Event logic touched.
 
 import React, { useEffect } from 'react';
-import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom';
+import { Routes, Route, NavLink } from 'react-router-dom';
 import { SettingsProvider, useSettings } from './state/settings';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import AccountMenu from './components/AccountMenu';
@@ -17,7 +16,7 @@ import CalendarPage from './pages/Calendar';
 import SettingsPage from './pages/Settings';
 
 function AppRoot() {
-  // Run migrations once on app start (safe & idempotent)
+  // Run idempotent migrations once on mount
   useEffect(() => {
     migrateSliceC();
   }, []);
@@ -25,9 +24,7 @@ function AppRoot() {
   return (
     <SettingsProvider>
       <AuthProvider>
-        <BrowserRouter>
-          <Shell />
-        </BrowserRouter>
+        <Shell />
       </AuthProvider>
     </SettingsProvider>
   );
@@ -35,7 +32,10 @@ function AppRoot() {
 
 function Shell() {
   return (
-    <div className="app-shell" style={{ minHeight: '100dvh', display: 'grid', gridTemplateRows: 'auto 1fr auto' }}>
+    <div
+      className="app-shell"
+      style={{ minHeight: '100dvh', display: 'grid', gridTemplateRows: 'auto 1fr auto' }}
+    >
       <Header />
       <main style={{ padding: 16 }}>
         <Routes>
@@ -69,11 +69,7 @@ function Header() {
       }}
     >
       <div style={{ fontWeight: 800, letterSpacing: 0.2 }}>Family Calendar</div>
-
-      {/* Spacer */}
       <div style={{ flex: 1 }} />
-
-      {/* Global "My agenda" switch (visible only when Slice C auth is enabled & a user is signed in) */}
       {flags.authEnabled && currentUser ? (
         <label
           style={{
@@ -94,15 +90,12 @@ function Header() {
           My agenda
         </label>
       ) : null}
-
-      {/* Account menu (entirely hidden when auth is disabled) */}
       <AccountMenu />
     </header>
   );
 }
 
 function BottomNav() {
-  // Preserve your Slice A/B bottom nav pattern (Home / Calendar / Settings)
   const linkStyle: React.CSSProperties = {
     padding: '10px 12px',
     borderRadius: 10,
@@ -128,9 +121,21 @@ function BottomNav() {
         justifyContent: 'space-around',
       }}
     >
-      <NavLink to="/" style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}>Home</NavLink>
-      <NavLink to="/calendar" style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}>Calendar</NavLink>
-      <NavLink to="/settings" style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}>Settings</NavLink>
+      <NavLink to="/" style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}>
+        Home
+      </NavLink>
+      <NavLink
+        to="/calendar"
+        style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}
+      >
+        Calendar
+      </NavLink>
+      <NavLink
+        to="/settings"
+        style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}
+      >
+        Settings
+      </NavLink>
     </nav>
   );
 }
