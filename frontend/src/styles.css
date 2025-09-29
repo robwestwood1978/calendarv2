@@ -468,3 +468,19 @@ button:disabled { opacity: .55; cursor: not-allowed; }
   color: #fff;
   border-color: var(--primary);
 }
+/* ===== Slice C minimal bits (append-only, safe) ===== */
+.fc-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid #e5e7eb;
+  background: #f8fafc;
+  font-size: 12px;
+  color: #334155;
+  line-height: 18px;
+}
+.fc-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
