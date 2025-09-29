@@ -1,22 +1,20 @@
 // src/App.tsx
-// Router-light App: assumes the Router is created in main.tsx (baseline behaviour).
-// Keeps Slice C providers, migration, header AccountMenu, and bottom nav.
-// No route changes and no Calendar/Event logic touched.
+// Router-light app. Providers + header + bottom nav.
+// No "My agenda" UI here (parked per request). Calendar/Event UX untouched.
 
 import React, { useEffect } from 'react';
 import { Routes, Route, NavLink } from 'react-router-dom';
-import { SettingsProvider, useSettings } from './state/settings';
-import { AuthProvider, useAuth } from './auth/AuthProvider';
+import { SettingsProvider } from './state/settings';
+import { AuthProvider } from './auth/AuthProvider';
 import AccountMenu from './components/AccountMenu';
 import { migrateSliceC } from './lib/migrateSliceC';
-import { useFeatureFlags } from './state/featureFlags';
 
 import Home from './pages/Home';
 import CalendarPage from './pages/Calendar';
 import SettingsPage from './pages/Settings';
 
 function AppRoot() {
-  // Run idempotent migrations once on mount
+  // Still safe to run; preflight already executed. This is just an extra guard.
   useEffect(() => {
     migrateSliceC();
   }, []);
@@ -50,10 +48,6 @@ function Shell() {
 }
 
 function Header() {
-  const [flags] = useFeatureFlags();
-  const { settings, setMyAgendaOnly } = useSettings();
-  const { currentUser } = useAuth();
-
   return (
     <header
       style={{
@@ -70,26 +64,7 @@ function Header() {
     >
       <div style={{ fontWeight: 800, letterSpacing: 0.2 }}>Family Calendar</div>
       <div style={{ flex: 1 }} />
-      {flags.authEnabled && currentUser ? (
-        <label
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            fontSize: 14,
-            color: '#334155',
-            marginRight: 8,
-          }}
-          title="Show only events for my linked members"
-        >
-          <input
-            type="checkbox"
-            checked={!!settings.myAgendaOnly}
-            onChange={(e) => setMyAgendaOnly(e.target.checked)}
-          />
-          My agenda
-        </label>
-      ) : null}
+      {/* Account menu is fully flag-gated internally; renders nothing when auth is disabled */}
       <AccountMenu />
     </header>
   );
@@ -124,16 +99,10 @@ function BottomNav() {
       <NavLink to="/" style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}>
         Home
       </NavLink>
-      <NavLink
-        to="/calendar"
-        style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}
-      >
+      <NavLink to="/calendar" style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}>
         Calendar
       </NavLink>
-      <NavLink
-        to="/settings"
-        style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}
-      >
+      <NavLink to="/settings" style={({ isActive }) => ({ ...linkStyle, ...(isActive ? active : {}) })}>
         Settings
       </NavLink>
     </nav>
