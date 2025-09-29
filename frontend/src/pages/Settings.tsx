@@ -1,10 +1,10 @@
 // frontend/src/state/settings.tsx
-// Stable ABI for A/B/C:
-// - `useSettings()` returns a *plain* Settings object (only data fields).
-// - Separate `useSettingsActions()` exposes mutations.
-// - No React context dependency (uses useSyncExternalStore + localStorage).
+// Stable ABI:
+// - `useSettings()` returns a *plain* Settings object (data only; no methods; no .settings alias).
+// - Mutations via `useSettingsActions()`.
+// - No React context dependency (useSyncExternalStore + localStorage).
 // - Members is ALWAYS an array. fmt/pickEventColour/listMembers/readEventsRaw unchanged.
-// - Default export also provided (some legacy imports use default).
+// - Default export also provided.
 
 import React, { useMemo, useSyncExternalStore } from 'react'
 import { DateTime } from 'luxon'
@@ -64,7 +64,7 @@ function writeSettings(next: AnyRecord) {
   window.dispatchEvent(new CustomEvent('fc:settings:changed'))
 }
 
-// ---------- Global store ----------
+// ---------- Global store (no context) ----------
 type Store = {
   get: () => Settings
   set: (update: Partial<Settings> | ((s: Settings) => Settings)) => void
@@ -95,19 +95,19 @@ const store: Store = (() => {
   return { get, set, setMyAgendaOnly, subscribe }
 })()
 
-// ---------- Public hooks (plain data; no aliases) ----------
+// ---------- Public hooks ----------
 export function useSettings(): Settings {
-  // Return only the data snapshot; *no* methods or aliases on the object.
   const snapshot = useSyncExternalStore(store.subscribe, store.get, store.get)
+  // Return *only* data; ensure members is an array.
   return useMemo(() => ({ ...snapshot, members: Array.isArray(snapshot.members) ? snapshot.members : [] }), [snapshot])
 }
 
-// Explicit actions hook for code that needs to mutate settings
+// Explicit actions hook for writes
 export function useSettingsActions(): Pick<Store, 'set' | 'setMyAgendaOnly'> {
   return { set: store.set, setMyAgendaOnly: store.setMyAgendaOnly }
 }
 
-// ---------- Convenience readers (storage-level) ----------
+// ---------- Convenience readers ----------
 export function listMembers(): Member[] {
   return readSettings().members // guaranteed array
 }
@@ -122,7 +122,7 @@ export function readEventsRaw(): any[] {
   }
 }
 
-// ---------- Colour helper (stable) ----------
+// ---------- Colour helper ----------
 export function pickEventColour(evt: any, settings: Settings): string | undefined {
   const map = new Map<string, string>()
   ;(settings.members || []).forEach((m) => { if (m.id && m.colour) map.set(m.id, m.colour) })
