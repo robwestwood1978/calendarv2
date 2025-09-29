@@ -1,12 +1,10 @@
-// src/preflight.ts
-// Runs *before* the app loads to ensure localStorage has safe shapes for legacy readers.
+// frontend/src/preflight.ts
+// Run before the app mounts so legacy readers see a safe fc_settings_v3 shape.
 
 import { migrateSliceC } from './lib/migrateSliceC';
 
-// Run idempotent migration immediately so fc_settings_v3 is safe (members: [])
 migrateSliceC();
 
-// Extra belt-and-braces: if someone cleared storage between builds, ensure shape again
 try {
   const LS_SETTINGS = 'fc_settings_v3';
   const raw = localStorage.getItem(LS_SETTINGS);
@@ -23,5 +21,5 @@ try {
     localStorage.setItem(LS_SETTINGS, JSON.stringify(next));
   }
 } catch {
-  // ignore — localStorage not available (SSR) or JSON parse error; app will still boot
+  // ignore
 }
