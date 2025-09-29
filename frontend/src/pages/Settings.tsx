@@ -1,13 +1,10 @@
 // frontend/src/state/settings.tsx
-// Final, durable version.
-// - `useSettings()` no longer depends on React Context; it uses a global store via useSyncExternalStore.
-// - Still exports a no-op SettingsProvider (compat).
-// - Satisfies BOTH historical call patterns:
-//     * const { members } = useSettings()
-//     * const { settings } = useSettings(); settings.members.map(...)
-// - Attaches .setSettings and .setMyAgendaOnly on the returned object too.
+// Stable ABI for A/B/C:
+// - `useSettings()` returns a *plain* Settings object (only data fields).
+// - Separate `useSettingsActions()` exposes mutations.
+// - No React context dependency (uses useSyncExternalStore + localStorage).
 // - Members is ALWAYS an array. fmt/pickEventColour/listMembers/readEventsRaw unchanged.
-// - Default export is useSettings (covers default-import legacy).
+// - Default export also provided (some legacy imports use default).
 
 import React, { useMemo, useSyncExternalStore } from 'react'
 import { DateTime } from 'luxon'
@@ -27,7 +24,7 @@ export const fmt = {
   },
 }
 
-// ---------- Settings shape ----------
+// ---------- Types ----------
 export type Member = { id: string; name: string; role?: 'parent' | 'adult' | 'child'; colour?: string }
 export type Settings = {
   weekStartMonday?: boolean
@@ -64,11 +61,10 @@ function writeSettings(next: AnyRecord) {
   const normalized = normalizeSettings(merged)
   const out = { ...merged, ...normalized, members: normalized.members, myAgendaOnly: normalized.myAgendaOnly }
   localStorage.setItem(LS_SETTINGS, JSON.stringify(out))
-  // notify all subscribers
   window.dispatchEvent(new CustomEvent('fc:settings:changed'))
 }
 
-// ---------- Global store (context-free) ----------
+// ---------- Global store ----------
 type Store = {
   get: () => Settings
   set: (update: Partial<Settings> | ((s: Settings) => Settings)) => void
@@ -99,7 +95,34 @@ const store: Store = (() => {
   return { get, set, setMyAgendaOnly, subscribe }
 })()
 
-// ---------- Event colour helper (stable) ----------
+// ---------- Public hooks (plain data; no aliases) ----------
+export function useSettings(): Settings {
+  // Return only the data snapshot; *no* methods or aliases on the object.
+  const snapshot = useSyncExternalStore(store.subscribe, store.get, store.get)
+  return useMemo(() => ({ ...snapshot, members: Array.isArray(snapshot.members) ? snapshot.members : [] }), [snapshot])
+}
+
+// Explicit actions hook for code that needs to mutate settings
+export function useSettingsActions(): Pick<Store, 'set' | 'setMyAgendaOnly'> {
+  return { set: store.set, setMyAgendaOnly: store.setMyAgendaOnly }
+}
+
+// ---------- Convenience readers (storage-level) ----------
+export function listMembers(): Member[] {
+  return readSettings().members // guaranteed array
+}
+export function readEventsRaw(): any[] {
+  try {
+    const raw = localStorage.getItem(LS_EVENTS)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? arr : []
+  } catch {
+    return []
+  }
+}
+
+// ---------- Colour helper (stable) ----------
 export function pickEventColour(evt: any, settings: Settings): string | undefined {
   const map = new Map<string, string>()
   ;(settings.members || []).forEach((m) => { if (m.id && m.colour) map.set(m.id, m.colour) })
@@ -115,53 +138,10 @@ export function pickEventColour(evt: any, settings: Settings): string | undefine
   return evt?.colour || evt?.color
 }
 
-// ---------- Public hooks (compat; no context needed) ----------
-export function useSettings(): Settings & {
-  settings: Settings
-  setSettings?: Store['set']
-  setMyAgendaOnly?: Store['setMyAgendaOnly']
-} {
-  const snapshot = useSyncExternalStore(store.subscribe, store.get, store.get)
-  // Attach legacy-friendly aliases (memoised so referentially stable for consumers)
-  return useMemo(() => {
-    const s = snapshot as Settings & {
-      settings?: Settings
-      setSettings?: Store['set']
-      setMyAgendaOnly?: Store['setMyAgendaOnly']
-    }
-    if (!s.settings) s.settings = s
-    if (!s.setSettings) s.setSettings = store.set
-    if (!s.setMyAgendaOnly) s.setMyAgendaOnly = store.setMyAgendaOnly
-    return s
-  }, [snapshot])
-}
-
-// Optional explicit actions hook for new code
-export function useSettingsActions(): Pick<Store, 'set' | 'setMyAgendaOnly'> {
-  // No subscription needed for actions
-  return { set: store.set, setMyAgendaOnly: store.setMyAgendaOnly }
-}
-
-// ---------- Convenience readers ----------
-export function listMembers(): Member[] {
-  return readSettings().members // guaranteed array
-}
-export function readEventsRaw(): any[] {
-  try {
-    const raw = localStorage.getItem(LS_EVENTS)
-    if (!raw) return []
-    const arr = JSON.parse(raw)
-    return Array.isArray(arr) ? arr : []
-  } catch {
-    return []
-  }
-}
-
-// ---------- No-op provider (compat with existing tree) ----------
+// ---------- No-op provider for JSX compatibility ----------
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  // Deliberately no context — keep for JSX structure compatibility
   return <>{children}</>
 }
 
-// Default export for legacy `import useSettings from '…/settings'`
+// Default export for legacy default imports
 export default useSettings
