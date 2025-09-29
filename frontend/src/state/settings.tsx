@@ -1,5 +1,6 @@
 // src/state/settings.tsx
-// Non-breaking Slice C enhancement.
+// Non-breaking Slice C enhancement with stronger defaults.
+// - Guarantees settings.members is ALWAYS an array (empty by default)
 // - Preserves existing behaviour for Slice A/B
 // - Adds myAgendaOnly?: boolean (default false)
 // - Exports: useSettings, fmt, pickEventColour (stable names)
@@ -20,44 +21,63 @@ export const fmt = {
   time(dt: DateTime) {
     return dt.toFormat('HH:mm');
   },
-  // Extend as needed, but keep existing names intact
 };
 
 // ---------- Settings shape (extend without breaking) ----------
 export type Settings = {
-  // Existing Slice A/B settings (examples; we preserve unknowns too):
   weekStartMonday?: boolean;
   timeFormat24h?: boolean;
   defaultDurationMins?: number;
-  members?: Array<{ id: string; name: string; role?: 'parent' | 'adult' | 'child'; colour?: string }>;
-
-  // NEW (Slice C, optional & safe):
+  members: Array<{ id: string; name: string; role?: 'parent' | 'adult' | 'child'; colour?: string }>; // <- ALWAYS array
   myAgendaOnly?: boolean;
 };
+
+// Enforce strong defaults & shape on load
+function normalizeSettings(input: any): Settings {
+  const s = (input && typeof input === 'object') ? input : {};
+  return {
+    weekStartMonday: s.weekStartMonday,
+    timeFormat24h: s.timeFormat24h,
+    defaultDurationMins: s.defaultDurationMins,
+    members: Array.isArray(s.members) ? s.members : [],  // <- key fix
+    myAgendaOnly: typeof s.myAgendaOnly === 'boolean' ? s.myAgendaOnly : false,
+    // Preserve any unknown keys transparently:
+    // (We don’t drop them; they remain in storage via writeSettings merge below)
+  } as Settings;
+}
 
 function readSettings(): Settings {
   try {
     const raw = localStorage.getItem(LS_SETTINGS);
-    if (!raw) return { myAgendaOnly: false };
+    if (!raw) return normalizeSettings({});
     const parsed = JSON.parse(raw);
-    // Do NOT drop unknown keys
-    if (typeof parsed.myAgendaOnly === 'undefined') parsed.myAgendaOnly = false;
-    return parsed;
+    return normalizeSettings(parsed);
   } catch {
-    return { myAgendaOnly: false };
+    return normalizeSettings({});
   }
 }
 
-function writeSettings(next: Settings) {
-  localStorage.setItem(LS_SETTINGS, JSON.stringify(next));
+function writeSettings(next: Partial<Settings> & AnyRecord) {
+  // Merge with existing raw to preserve unknown keys, but enforce normalized output
+  const existingRaw = (() => {
+    try {
+      const raw = localStorage.getItem(LS_SETTINGS);
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  })();
+
+  const merged = { ...existingRaw, ...next };
+  const normalized = normalizeSettings(merged);
+  // Keep unknown keys from merged alongside normalized known keys:
+  const finalOut = { ...merged, ...normalized, members: normalized.members, myAgendaOnly: normalized.myAgendaOnly };
+  localStorage.setItem(LS_SETTINGS, JSON.stringify(finalOut));
   window.dispatchEvent(new CustomEvent('fc:settings:changed'));
 }
 
 // ---------- Event colour helper (keep name stable) ----------
-// Rule: derive event colour from attendees/responsible adult if available,
-// otherwise leave as-is. This should match Slice B logic.
 export function pickEventColour(evt: any, settings: Settings): string | undefined {
-  // Try attendee/member-derived colours first
   const memberColourMap = new Map<string, string>();
   (settings.members || []).forEach((m) => {
     if (m.id && m.colour) memberColourMap.set(m.id, m.colour);
@@ -66,25 +86,21 @@ export function pickEventColour(evt: any, settings: Settings): string | undefine
   const attendees: string[] =
     evt?.attendeeIds || evt?.attendees || evt?.members || [];
 
-  // Prefer first attendee with a known colour
   for (const mId of Array.isArray(attendees) ? attendees : []) {
     const c = memberColourMap.get(mId);
     if (c) return c;
   }
 
-  // Responsible adult/member fallback
   const responsible: string | undefined = evt?.responsibleId || evt?.responsibleMemberId;
   if (responsible && memberColourMap.has(responsible)) {
     return memberColourMap.get(responsible);
   }
 
-  // Owner fallback (Slice C sync-ready)
   const owner: string | undefined = evt?.ownerMemberId;
   if (owner && memberColourMap.has(owner)) {
     return memberColourMap.get(owner);
   }
 
-  // Finally, respect any explicit event colour set earlier
   return evt?.colour || evt?.color;
 }
 
@@ -92,8 +108,6 @@ export function pickEventColour(evt: any, settings: Settings): string | undefine
 type Ctx = {
   settings: Settings;
   setSettings: (update: Partial<Settings> | ((s: Settings) => Settings)) => void;
-
-  // Convenience togglers (non-breaking)
   setMyAgendaOnly: (on: boolean) => void;
 };
 
@@ -102,25 +116,29 @@ const SettingsContext = createContext<Ctx | undefined>(undefined);
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [settings, setState] = useState<Settings>(() => readSettings());
 
-  // React to external changes (other tabs, migrations)
   useEffect(() => {
     const handler = () => setState(readSettings());
     window.addEventListener('fc:settings:changed', handler);
-    window.addEventListener('storage', (e) => {
+    const storageHandler = (e: StorageEvent) => {
       if (e.key === LS_SETTINGS) handler();
-    });
+    };
+    window.addEventListener('storage', storageHandler);
     return () => {
       window.removeEventListener('fc:settings:changed', handler);
+      window.removeEventListener('storage', storageHandler);
     };
   }, []);
 
   const setSettings: Ctx['setSettings'] = (update) => {
-    const next =
-      typeof update === 'function'
-        ? (update as (s: Settings) => Settings)(readSettings())
-        : { ...readSettings(), ...update };
-    writeSettings(next);
-    setState(next);
+    const current = readSettings();
+    const next = typeof update === 'function'
+      ? (update as (s: Settings) => Settings)(current)
+      : { ...current, ...update };
+
+    // Ensure members stays an array even if someone passes undefined
+    if (!Array.isArray(next.members)) next.members = [];
+    writeSettings(next as any);
+    setState(readSettings());
   };
 
   const setMyAgendaOnly = (on: boolean) => setSettings({ myAgendaOnly: !!on });
@@ -139,13 +157,12 @@ export function useSettings() {
   return ctx;
 }
 
-// ---------- (Optional) small helper for consumers ----------
+// ---------- Convenience readers ----------
 export function listMembers(): Array<{ id: string; name: string; role?: string; colour?: string }> {
   const s = readSettings();
-  return s.members || [];
+  return s.members; // guaranteed array
 }
 
-// ---------- Defensive export for external modules that only need events ----------
 export function readEventsRaw(): any[] {
   try {
     const raw = localStorage.getItem(LS_EVENTS);
