@@ -1,69 +1,38 @@
 // src/lib/migrateSliceC.ts
-// Idempotent migration for Slice C (safe on every load).
-// Guarantees fc_settings_v3 exists and *always* has a members: [] array.
-// Also ensures optional sync-ready fields on events are present (left undefined).
+// Idempotent migration for Slice C (safe every load).
+// Ensures fc_settings_v3 exists and has safe defaults used by legacy code.
 
 type AnyRecord = Record<string, any>;
-
 const LS_SETTINGS = 'fc_settings_v3';
 const LS_EVENTS = 'fc_events_v1';
 
 export function migrateSliceC(): void {
-  try {
-    migrateSettings();
-  } catch (e) {
-    console.warn('[migrateSliceC] settings migration skipped:', e);
-  }
-  try {
-    migrateEvents();
-  } catch (e) {
-    console.warn('[migrateSliceC] events migration skipped:', e);
-  }
+  try { migrateSettings(); } catch (e) { console.warn('[migrateSliceC] settings migration skipped:', e); }
+  try { migrateEvents(); } catch (e) { console.warn('[migrateSliceC] events migration skipped:', e); }
 }
 
 function migrateSettings() {
-  // 1) Read whatever is there (or nothing)
   let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(LS_SETTINGS);
-  } catch {
-    // continue with defaults
-  }
-
+  try { raw = localStorage.getItem(LS_SETTINGS); } catch {}
   let parsed: AnyRecord = {};
   if (raw) {
-    try {
-      parsed = JSON.parse(raw) || {};
-    } catch {
-      parsed = {};
-    }
+    try { parsed = JSON.parse(raw) || {}; } catch { parsed = {}; }
   }
 
-  // 2) Backfill *strong* defaults expected by legacy readers
-  const hasMembersArray = Array.isArray(parsed.members);
-  const next: AnyRecord = {
-    ...parsed,
-    // Always provide an array — legacy code does .members.map(...)
-    members: hasMembersArray ? parsed.members : [],
-  };
+  const next: AnyRecord = { ...parsed };
 
-  // 3) Add Slice C flag key if missing (non-breaking)
-  if (typeof next.myAgendaOnly === 'undefined') {
-    next.myAgendaOnly = false;
-  }
+  // Strong defaults for legacy readers:
+  if (!Array.isArray(next.members)) next.members = [];             // used widely
+  if (typeof next.weekStartMonday === 'undefined') next.weekStartMonday = false;
+  if (typeof next.timeFormat24h === 'undefined') next.timeFormat24h = true;
+  if (typeof next.defaultDurationMins === 'undefined') next.defaultDurationMins = 60;
 
-  // 4) Write back only if something actually changed
-  const changed =
-    !raw ||
-    !hasMembersArray ||
-    (typeof parsed.myAgendaOnly === 'undefined');
+  // Slice C key:
+  if (typeof next.myAgendaOnly === 'undefined') next.myAgendaOnly = false;
 
-  if (changed) {
-    try {
-      localStorage.setItem(LS_SETTINGS, JSON.stringify(next));
-    } catch {
-      // ignore; nothing else we can do in local-only mode
-    }
+  const shouldWrite = JSON.stringify(parsed) !== JSON.stringify(next);
+  if (shouldWrite) {
+    try { localStorage.setItem(LS_SETTINGS, JSON.stringify(next)); } catch {}
   }
 }
 
@@ -75,35 +44,19 @@ function migrateEvents() {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) return;
     events = parsed;
-  } catch {
-    return;
-  }
+  } catch { return; }
 
   let changed = false;
   const next = events.map((evt) => {
     const copy = { ...evt };
-
-    if (!copy.id) {
-      copy.id = uid();
-      changed = true;
-    }
-    if (!('createdByUserId' in copy)) {
-      copy.createdByUserId = undefined;
-      changed = true;
-    }
-    if (!('ownerMemberId' in copy)) {
-      copy.ownerMemberId = undefined;
-      changed = true;
-    }
+    if (!copy.id) { copy.id = uid(); changed = true; }
+    if (!('createdByUserId' in copy)) { copy.createdByUserId = undefined; changed = true; }
+    if (!('ownerMemberId' in copy)) { copy.ownerMemberId = undefined; changed = true; }
     return copy;
   });
 
   if (changed) {
-    try {
-      localStorage.setItem(LS_EVENTS, JSON.stringify(next));
-    } catch {
-      // ignore write errors
-    }
+    try { localStorage.setItem(LS_EVENTS, JSON.stringify(next)); } catch {}
   }
 }
 
