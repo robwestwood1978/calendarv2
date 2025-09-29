@@ -1,175 +1,163 @@
-// src/state/settings.tsx
-// Non-breaking Slice C enhancement with stronger defaults.
-// - Guarantees settings.members is ALWAYS an array (empty by default)
-// - Preserves existing behaviour for Slice A/B
-// - Adds myAgendaOnly?: boolean (default false)
-// - Exports: useSettings, fmt, pickEventColour (stable names)
+// frontend/src/state/settings.tsx
+// Restores baseline contract: `useSettings()` returns the *settings object itself*.
+// Adds `useSettingsActions()` for mutating helpers.
+// Guarantees settings.members is always an array to protect legacy code.
 
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { DateTime } from 'luxon';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import { DateTime } from 'luxon'
 
-type AnyRecord = Record<string, any>;
+type AnyRecord = Record<string, any>
 
-const LS_SETTINGS = 'fc_settings_v3';
-const LS_EVENTS = 'fc_events_v1';
+const LS_SETTINGS = 'fc_settings_v3'
+const LS_EVENTS = 'fc_events_v1'
 
-// ---------- Formatting helpers (keep names stable) ----------
+// ---------- Formatting helpers (stable) ----------
 export const fmt = {
   day(dt: DateTime) {
-    return dt.toFormat('ccc d LLL');
+    return dt.toFormat('ccc d LLL')
   },
   time(dt: DateTime) {
-    return dt.toFormat('HH:mm');
+    return dt.toFormat('HH:mm')
   },
-};
+}
 
 // ---------- Settings shape (extend without breaking) ----------
 export type Settings = {
-  weekStartMonday?: boolean;
-  timeFormat24h?: boolean;
-  defaultDurationMins?: number;
-  members: Array<{ id: string; name: string; role?: 'parent' | 'adult' | 'child'; colour?: string }>; // <- ALWAYS array
-  myAgendaOnly?: boolean;
-};
+  weekStartMonday?: boolean
+  timeFormat24h?: boolean
+  defaultDurationMins?: number
+  members: Array<{ id: string; name: string; role?: 'parent' | 'adult' | 'child'; colour?: string }>
+  // Slice C optional:
+  myAgendaOnly?: boolean
+}
 
-// Enforce strong defaults & shape on load
+// Normalize any raw object to a safe Settings
 function normalizeSettings(input: any): Settings {
-  const s = (input && typeof input === 'object') ? input : {};
+  const s = (input && typeof input === 'object') ? input : {}
   return {
-    weekStartMonday: s.weekStartMonday,
-    timeFormat24h: s.timeFormat24h,
-    defaultDurationMins: s.defaultDurationMins,
-    members: Array.isArray(s.members) ? s.members : [],  // <- key fix
+    weekStartMonday: s.weekStartMonday ?? false,
+    timeFormat24h: s.timeFormat24h ?? true,
+    defaultDurationMins: typeof s.defaultDurationMins === 'number' ? s.defaultDurationMins : 60,
+    members: Array.isArray(s.members) ? s.members : [],          // <- always an array
     myAgendaOnly: typeof s.myAgendaOnly === 'boolean' ? s.myAgendaOnly : false,
-    // Preserve any unknown keys transparently:
-    // (We don’t drop them; they remain in storage via writeSettings merge below)
-  } as Settings;
+  }
+}
+
+function readSettingsRaw(): AnyRecord {
+  try {
+    const raw = localStorage.getItem(LS_SETTINGS)
+    return raw ? JSON.parse(raw) : {}
+  } catch {
+    return {}
+  }
 }
 
 function readSettings(): Settings {
-  try {
-    const raw = localStorage.getItem(LS_SETTINGS);
-    if (!raw) return normalizeSettings({});
-    const parsed = JSON.parse(raw);
-    return normalizeSettings(parsed);
-  } catch {
-    return normalizeSettings({});
-  }
+  return normalizeSettings(readSettingsRaw())
 }
 
-function writeSettings(next: Partial<Settings> & AnyRecord) {
-  // Merge with existing raw to preserve unknown keys, but enforce normalized output
-  const existingRaw = (() => {
-    try {
-      const raw = localStorage.getItem(LS_SETTINGS);
-      return raw ? JSON.parse(raw) : {};
-    } catch {
-      return {};
-    }
-  })();
-
-  const merged = { ...existingRaw, ...next };
-  const normalized = normalizeSettings(merged);
-  // Keep unknown keys from merged alongside normalized known keys:
-  const finalOut = { ...merged, ...normalized, members: normalized.members, myAgendaOnly: normalized.myAgendaOnly };
-  localStorage.setItem(LS_SETTINGS, JSON.stringify(finalOut));
-  window.dispatchEvent(new CustomEvent('fc:settings:changed'));
+function writeSettings(next: AnyRecord) {
+  // Merge with existing to preserve unknown keys, then normalize important ones
+  const merged = { ...readSettingsRaw(), ...next }
+  const normalized = normalizeSettings(merged)
+  const finalOut = { ...merged, ...normalized, members: normalized.members, myAgendaOnly: normalized.myAgendaOnly }
+  localStorage.setItem(LS_SETTINGS, JSON.stringify(finalOut))
+  window.dispatchEvent(new CustomEvent('fc:settings:changed'))
 }
 
-// ---------- Event colour helper (keep name stable) ----------
+// ---------- Event colour helper (stable) ----------
 export function pickEventColour(evt: any, settings: Settings): string | undefined {
-  const memberColourMap = new Map<string, string>();
-  (settings.members || []).forEach((m) => {
-    if (m.id && m.colour) memberColourMap.set(m.id, m.colour);
-  });
+  const memberColourMap = new Map<string, string>()
+  ;(settings.members || []).forEach((m) => {
+    if (m.id && m.colour) memberColourMap.set(m.id, m.colour)
+  })
 
-  const attendees: string[] =
-    evt?.attendeeIds || evt?.attendees || evt?.members || [];
-
+  const attendees: string[] = evt?.attendeeIds || evt?.attendees || evt?.members || []
   for (const mId of Array.isArray(attendees) ? attendees : []) {
-    const c = memberColourMap.get(mId);
-    if (c) return c;
+    const c = memberColourMap.get(mId)
+    if (c) return c
   }
 
-  const responsible: string | undefined = evt?.responsibleId || evt?.responsibleMemberId;
-  if (responsible && memberColourMap.has(responsible)) {
-    return memberColourMap.get(responsible);
-  }
+  const responsible: string | undefined = evt?.responsibleId || evt?.responsibleMemberId
+  if (responsible && memberColourMap.has(responsible)) return memberColourMap.get(responsible)
 
-  const owner: string | undefined = evt?.ownerMemberId;
-  if (owner && memberColourMap.has(owner)) {
-    return memberColourMap.get(owner);
-  }
+  const owner: string | undefined = evt?.ownerMemberId
+  if (owner && memberColourMap.has(owner)) return memberColourMap.get(owner)
 
-  return evt?.colour || evt?.color;
+  return evt?.colour || evt?.color
 }
 
-// ---------- Settings context & hook (keep name stable) ----------
+// ---------- Context (internal) ----------
 type Ctx = {
-  settings: Settings;
-  setSettings: (update: Partial<Settings> | ((s: Settings) => Settings)) => void;
-  setMyAgendaOnly: (on: boolean) => void;
-};
+  value: Settings
+  setSettings: (update: Partial<Settings> | ((s: Settings) => Settings)) => void
+  setMyAgendaOnly: (on: boolean) => void
+}
 
-const SettingsContext = createContext<Ctx | undefined>(undefined);
+const SettingsContext = createContext<Ctx | undefined>(undefined)
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const [settings, setState] = useState<Settings>(() => readSettings());
+  const [value, setValue] = useState<Settings>(() => readSettings())
 
+  // React to external changes (other tabs / preflight / migrations)
   useEffect(() => {
-    const handler = () => setState(readSettings());
-    window.addEventListener('fc:settings:changed', handler);
-    const storageHandler = (e: StorageEvent) => {
-      if (e.key === LS_SETTINGS) handler();
-    };
-    window.addEventListener('storage', storageHandler);
+    const onCustom = () => setValue(readSettings())
+    const onStorage = (e: StorageEvent) => { if (e.key === LS_SETTINGS) onCustom() }
+
+    window.addEventListener('fc:settings:changed', onCustom)
+    window.addEventListener('storage', onStorage)
     return () => {
-      window.removeEventListener('fc:settings:changed', handler);
-      window.removeEventListener('storage', storageHandler);
-    };
-  }, []);
+      window.removeEventListener('fc:settings:changed', onCustom)
+      window.removeEventListener('storage', onStorage)
+    }
+  }, [])
 
   const setSettings: Ctx['setSettings'] = (update) => {
-    const current = readSettings();
+    const current = readSettings()
     const next = typeof update === 'function'
       ? (update as (s: Settings) => Settings)(current)
-      : { ...current, ...update };
+      : { ...current, ...update }
+    if (!Array.isArray(next.members)) next.members = []
+    writeSettings(next as any)
+    setValue(readSettings())
+  }
 
-    // Ensure members stays an array even if someone passes undefined
-    if (!Array.isArray(next.members)) next.members = [];
-    writeSettings(next as any);
-    setState(readSettings());
-  };
+  const setMyAgendaOnly = (on: boolean) => setSettings({ myAgendaOnly: !!on })
 
-  const setMyAgendaOnly = (on: boolean) => setSettings({ myAgendaOnly: !!on });
+  const ctx = useMemo<Ctx>(() => ({ value, setSettings, setMyAgendaOnly }), [value])
 
-  const value = useMemo<Ctx>(
-    () => ({ settings, setSettings, setMyAgendaOnly }),
-    [settings]
-  );
-
-  return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
+  return <SettingsContext.Provider value={ctx}>{children}</SettingsContext.Provider>
 }
 
-export function useSettings() {
-  const ctx = useContext(SettingsContext);
-  if (!ctx) throw new Error('useSettings must be used within <SettingsProvider>');
-  return ctx;
+// ---------- Public hooks (compatibility) ----------
+
+// ✅ Baseline contract: return the *settings object itself*.
+// Components that do `const { members } = useSettings()` will keep working.
+export function useSettings(): Settings {
+  const ctx = useContext(SettingsContext)
+  if (!ctx) throw new Error('useSettings must be used within <SettingsProvider>')
+  return ctx.value
+}
+
+// New opt-in actions hook (only needed by Slice-C additions)
+export function useSettingsActions(): Pick<Ctx, 'setSettings' | 'setMyAgendaOnly'> {
+  const ctx = useContext(SettingsContext)
+  if (!ctx) throw new Error('useSettingsActions must be used within <SettingsProvider>')
+  return { setSettings: ctx.setSettings, setMyAgendaOnly: ctx.setMyAgendaOnly }
 }
 
 // ---------- Convenience readers ----------
 export function listMembers(): Array<{ id: string; name: string; role?: string; colour?: string }> {
-  const s = readSettings();
-  return s.members; // guaranteed array
+  return readSettings().members // guaranteed array
 }
 
 export function readEventsRaw(): any[] {
   try {
-    const raw = localStorage.getItem(LS_EVENTS);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr : [];
+    const raw = localStorage.getItem(LS_EVENTS)
+    if (!raw) return []
+    const arr = JSON.parse(raw)
+    return Array.isArray(arr) ? arr : []
   } catch {
-    return [];
+    return []
   }
 }
