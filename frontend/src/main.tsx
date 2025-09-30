@@ -1,5 +1,4 @@
 // frontend/src/main.tsx
-
 // Reset switch (?reset=1) to clear local data if needed
 if (typeof window !== 'undefined') {
   const url = new URL(window.location.href)
@@ -15,9 +14,6 @@ if (typeof window !== 'undefined') {
     window.location.replace(url.toString())
   }
 }
-
-// IMPORTANT: run storage migration *before* any module reads settings.
-import './preflight'
 
 import React from 'react'
 import { createRoot } from 'react-dom/client'
